@@ -1,9 +1,10 @@
 local perf = require "spec.helpers.perf"
-local split = require "ngx.re".split
+local splitn = require("kong.tools.string").splitn
 local utils = require "spec.helpers.perf.utils"
 local workspaces = require "kong.workspaces"
 local stringx = require "pl.stringx"
 local tablex = require "pl.tablex"
+local shell = require "resty.shell"
 
 local fmt = string.format
 
@@ -30,7 +31,7 @@ local versions = {}
 
 local env_versions = os.getenv("PERF_TEST_VERSIONS")
 if env_versions then
-  versions = split(env_versions, ",")
+  versions = splitn(env_versions, ",")
 end
 
 local REPEAT_PER_TEST = 0
@@ -346,7 +347,7 @@ local gen_wrk_script = function(entity, action)
   return script
 end
 
-os.execute("mkdir -p output")
+shell.run("mkdir -p output", nil, 0)
 
 for _, mode in ipairs(KONG_MODES) do
 for _, version in ipairs(versions) do

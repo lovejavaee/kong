@@ -16,8 +16,6 @@ local pairs = pairs
 local max = math.max
 
 
-local sandbox_opts = { env = { kong = kong, ngx = ngx } }
-
 -- Create a function that concatenates multiple JSON objects into a JSON array.
 -- This saves us from rendering all entries into one large JSON string.
 -- Each invocation of the function returns the next bit of JSON, i.e. the opening
@@ -114,7 +112,6 @@ local function send_entries(conf, entries)
   httpc:set_timeout(timeout)
 
   local headers = {
-    ["Host"] = host,
     ["Content-Type"] = content_type,
     ["Content-Length"] = content_length,
     ["Authorization"] = userinfo and "Basic " .. encode_base64(userinfo) or nil
@@ -165,8 +162,9 @@ local HttpLogHandler = {
 -- previous queue implementation.  This ensures that http-log instances that
 -- have the same log server parameters are sharing a queue.  It deliberately
 -- uses the legacy parameters to determine the queue name, even though they may
--- be nil in newer configurations.
-local function make_legacy_queue_name(conf)
+-- be nil in newer configurations.  Note that the modernized queue related
+-- parameters are not included in the queue name determination.
+local function make_queue_name(conf)
   return fmt("%s:%s:%s:%s:%s:%s",
     conf.http_endpoint,
     conf.method,
@@ -183,16 +181,12 @@ function HttpLogHandler:log(conf)
   if conf.custom_fields_by_lua then
     local set_serialize_value = kong.log.set_serialize_value
     for key, expression in pairs(conf.custom_fields_by_lua) do
-      set_serialize_value(key, sandbox(expression, sandbox_opts)())
+      set_serialize_value(key, sandbox(expression)())
     end
   end
 
-  local explicit_name = conf.queue.name
-  local queue_conf = Queue.get_params(conf)
-  if not explicit_name then
-    queue_conf.name = make_legacy_queue_name(conf)
-    kong.log.debug("Queue name automatically configured based on configuration parameters to: ", queue_conf.name)
-  end
+  local queue_conf = Queue.get_plugin_params("http-log", conf, make_queue_name(conf))
+  kong.log.debug("Queue name automatically configured based on configuration parameters to: ", queue_conf.name)
 
   local ok, err = Queue.enqueue(
     queue_conf,

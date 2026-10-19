@@ -43,7 +43,7 @@ local function extract_range(status_code_list, range)
     local range_result, err = match(range, constants.REGEX_SPLIT_STATUS_CODES_BY_DASH, "oj")
 
     if err then
-      kong.log.error(err)
+      kong.log.err(err)
       return
     end
     ranges[range] = { range_result[START_RANGE_IDX], range_result[END_RANGE_IDX] }
@@ -132,8 +132,7 @@ local get_workspace_id = {
     return ws.get_workspace_id()
   end,
   workspace_name = function()
-    local workspace = ws.get_workspace()
-    return workspace.name
+    return ws.get_workspace_name()
   end
 }
 
@@ -442,7 +441,7 @@ function _M.execute(conf)
   kong.log.debug("Status code is within given status code ranges")
 
   if not worker_id then
-    worker_id = ngx.worker.id()
+    worker_id = ngx.worker.id() or -1
   end
 
   conf._prefix = conf.prefix
@@ -455,7 +454,7 @@ function _M.execute(conf)
   message.cache_metrics = ngx.ctx.cache_metrics
 
   local ok, err = Queue.enqueue(
-    Queue.get_params(conf),
+    Queue.get_plugin_params("statsd", conf),
     send_entries_to_upstream_server,
     conf,
     message

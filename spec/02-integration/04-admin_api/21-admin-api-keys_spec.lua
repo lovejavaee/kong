@@ -1,10 +1,3 @@
--- This software is copyright Kong Inc. and its licensors.
--- Use of the software is subject to the agreement between your organization
--- and Kong Inc. If there is no such agreement, use is governed by and
--- subject to the terms of the Kong Master Software License Agreement found
--- at https://konghq.com/enterprisesoftwarelicense/.
--- [ END OF LICENSE 0867164ffc95e54f04670b5169c09574bdbd9bba ]
-
 local helpers = require "spec.helpers"
 local cjson = require "cjson"
 local merge = kong.table.merge
@@ -15,9 +8,9 @@ local KEY_SET_NAME = "test"
 for _, strategy in helpers.all_strategies() do
   describe("Admin API - keys #" .. strategy, function()
     local pem_pub, pem_priv, jwk
-    helpers.setenv("SECRET_JWK", '{"alg": "RSA-OAEP", "kid": "test"}')
     local client
     lazy_setup(function()
+      helpers.setenv("SECRET_JWK", '{"alg": "RSA-OAEP", "kid": "test"}')
       helpers.get_db_utils(strategy, {
         "keys",
         "key_sets"})
@@ -34,7 +27,7 @@ for _, strategy in helpers.all_strategies() do
     end)
 
     lazy_teardown(function()
-      helpers.stop_kong(nil, true)
+      helpers.stop_kong()
     end)
 
     before_each(function()

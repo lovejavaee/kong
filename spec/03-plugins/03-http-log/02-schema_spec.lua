@@ -2,7 +2,8 @@ local PLUGIN_NAME = "http-log"
 
 
 local Queue = require "kong.tools.queue"
-
+local uuid = require "kong.tools.uuid"
+local mocker = require "spec.fixtures.mocker"
 
 -- helper function to validate data against a schema
 local validate do
@@ -16,30 +17,44 @@ end
 
 
 describe(PLUGIN_NAME .. ": (schema)", function()
-  local old_log
+  local unmock
   local log_messages
 
   before_each(function()
-    old_log = kong.log
     log_messages = ""
     local function log(level, message) -- luacheck: ignore
       log_messages = log_messages .. level .. " " .. message .. "\n"
     end
-    kong.log = {
-      debug = function(message) return log('DEBUG', message) end,
-      info = function(message) return log('INFO', message) end,
-      warn = function(message) return log('WARN', message) end,
-      err = function(message) return log('ERR', message) end,
-    }
+
+    mocker.setup(function(f)
+      unmock = f
+    end, {
+      kong = {
+        log = {
+          debug = function(message) return log('DEBUG', message) end,
+          info = function(message) return log('INFO', message) end,
+          warn = function(message) return log('WARN', message) end,
+          err = function(message) return log('ERR', message) end,
+        },
+        plugin = {
+          get_id = function () return uuid.uuid() end,
+        },
+      },
+      ngx = {
+        ctx = {
+          -- make sure our workspace is nil to begin with to prevent leakage from
+          -- other tests
+          workspace = nil
+        },
+      }
+    })
   end)
 
-  after_each(function()
-    kong.log = old_log -- luacheck: ignore
-  end)
+  after_each(unmock)
 
   it("accepts minimal config with defaults", function()
     local ok, err = validate({
-        http_endpoint = "http://myservice.com/path",
+        http_endpoint = "http://myservice.test/path",
       })
     assert.is_nil(err)
     assert.is_truthy(ok)
@@ -47,7 +62,7 @@ describe(PLUGIN_NAME .. ": (schema)", function()
 
   it("accepts empty headers with username/password in the http_endpoint", function()
     local ok, err = validate({
-        http_endpoint = "http://bob:password@myservice.com/path",
+        http_endpoint = "http://bob:password@myservice.test/path",
       })
     assert.is_nil(err)
     assert.is_truthy(ok)
@@ -55,7 +70,7 @@ describe(PLUGIN_NAME .. ": (schema)", function()
 
   it("accepts custom fields by lua", function()
     local ok, err = validate({
-        http_endpoint = "http://myservice.com/path",
+        http_endpoint = "http://myservice.test/path",
         custom_fields_by_lua = {
           foo = "return 'bar'",
         }
@@ -66,7 +81,7 @@ describe(PLUGIN_NAME .. ": (schema)", function()
 
   it("does accept allowed headers", function()
     local ok, err = validate({
-        http_endpoint = "http://myservice.com/path",
+        http_endpoint = "http://myservice.test/path",
         headers = {
           ["X-My-Header"] = "123",
           ["X-Your-Header"] = "abc",
@@ -78,7 +93,7 @@ describe(PLUGIN_NAME .. ": (schema)", function()
 
   it("does not accept empty header values", function()
     local ok, err = validate({
-      http_endpoint = "http://myservice.com/path",
+      http_endpoint = "http://myservice.test/path",
       headers = {
         ["X-My-Header"] = "",
       }
@@ -92,7 +107,7 @@ describe(PLUGIN_NAME .. ": (schema)", function()
 
   it("does not accept Host header", function()
     local ok, err = validate({
-        http_endpoint = "http://myservice.com/path",
+        http_endpoint = "http://myservice.test/path",
         headers = {
           ["X-My-Header"] = "123",
           Host = "MyHost",
@@ -108,7 +123,7 @@ describe(PLUGIN_NAME .. ": (schema)", function()
 
   it("does not accept Content-Length header", function()
     local ok, err = validate({
-        http_endpoint = "http://myservice.com/path",
+        http_endpoint = "http://myservice.test/path",
         headers = {
           ["coNTEnt-Length"] = "123",  -- also validate casing
         }
@@ -123,7 +138,7 @@ describe(PLUGIN_NAME .. ": (schema)", function()
 
   it("does not accept Content-Type header", function()
     local ok, err = validate({
-        http_endpoint = "http://myservice.com/path",
+        http_endpoint = "http://myservice.test/path",
         headers = {
           ["coNTEnt-Type"] = "bad"  -- also validate casing
         }
@@ -138,7 +153,7 @@ describe(PLUGIN_NAME .. ": (schema)", function()
 
   it("does not accept userinfo in URL and 'Authorization' header", function()
     local ok, err = validate({
-        http_endpoint = "http://hi:there@myservice.com/path",
+        http_endpoint = "http://hi:there@myservice.test/path",
         headers = {
           ["AuthoRIZATion"] = "bad"  -- also validate casing
         }
@@ -151,16 +166,17 @@ describe(PLUGIN_NAME .. ": (schema)", function()
 
   it("converts legacy queue parameters", function()
     local entity = validate({
-      http_endpoint = "http://hi:there@myservice.com/path",
+      http_endpoint = "http://hi:there@myservice.test/path",
       retry_count = 23,
       queue_size = 46,
       flush_timeout = 92,
     })
     assert.is_truthy(entity)
-    local conf = Queue.get_params(entity.config)
-    assert.match_re(log_messages, "deprecated `retry_count`")
-    assert.match_re(log_messages, "deprecated `queue_size`")
-    assert.match_re(log_messages, "deprecated `flush_timeout`")
+    entity.config.queue.name = "legacy-conversion-test"
+    local conf = Queue.get_plugin_params("http-log", entity.config)
+    assert.match_re(log_messages, "the retry_count parameter no longer works")
+    assert.match_re(log_messages, "the queue_size parameter is deprecated")
+    assert.match_re(log_messages, "the flush_timeout parameter is deprecated")
     assert.is_same(46, conf.max_batch_size)
     assert.is_same(92, conf.max_coalescing_delay)
   end)
